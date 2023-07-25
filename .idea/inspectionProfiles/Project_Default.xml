@@ -1,0 +1,52 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="HtmlUnknownAttribute" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="myValues">
+        <value>
+          <list size="1">
+            <item index="0" class="java.lang.String" itemvalue="form-control" />
+          </list>
+        </value>
+      </option>
+      <option name="myCustomValuesEnabled" value="true" />
+    </inspection_tool>
+    <inspection_tool class="LanguageDetectionInspection" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="LossyEncoding" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="PyPep8Inspection" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredErrors">
+        <list>
+          <option value="W605" />
+          <option value="E131" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyPep8NamingInspection" enabled="true" level="WEAK WARNING" enabled_by_default="true">
+      <option name="ignoredErrors">
+        <list>
+          <option value="N802" />
+          <option value="N806" />
+          <option value="N803" />
+          <option value="N801" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredIdentifiers">
+        <list>
+          <option value="list.content" />
+          <option value="tuple.flatten" />
+          <option value="lib.decision_tree_base" />
+          <option value="datareader.get_data_yahoo" />
+          <option value="datareader.*" />
+          <option value="pyecharts.options.*" />
+          <option value="random.random.randrange" />
+          <option value="cunzhao.models.CunzhaoStudentinfo.objects" />
+          <option value="cunzhao.views.requset" />
+          <option value="cunzhao.cunzhao.urls.*" />
+          <option value="cunzhao.web.models.UserList.*" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
