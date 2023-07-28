@@ -9,7 +9,7 @@ urlpatterns = [
     path('update_person/', views.update_person),
     path('search_person/', views.search_person),
 
-    path('provinces/', views.provinces),
-    path('cities/', views.cities),
-    path('ethnics/', views.ethnics),
+    path('get_provinces/', views.get_provinces),
+    path('get_cities/', views.get_cities),
+    path('get_ethnics/', views.get_ethnics),
 ]
