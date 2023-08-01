@@ -1,61 +1,45 @@
 from django.http import JsonResponse
-from django.shortcuts import render
-
 from api.models import Persons, Provinces, Cities, Ethnics
 import json
 
 
 # 发送persons
-def persons(request):
-    # 基础版
+def get_persons(request):
     if request.method == "GET":
-        user_qs = Persons.objects.all().values()
-        resp_data = {'items': list(user_qs)}
-        return JsonResponse(resp_data)
-    # 分页版
-    if request.method == "POST":
-        r_dict = json.loads(request.body)
-        # print('persons从前端发送来的数据', r_dict)
-        print('pageSize与currentPage分别为', r_dict['pageSize'], r_dict['currentPage'])
-        p = r_dict['pageSize']  # pageSize，每页显示条数
-        c = r_dict['currentPage']  # currentPage，当前页码
-        u = []  # 存储当前范围的persons信息
+        page_size = int(request.GET.get('pageSize'))  # str转int，当前页显示条数
+        current_page = int(request.GET.get('currentPage'))  # 当前是第几页
+        query_fields = ('number', 'name', 'sex', 'ethnic__name', 'birthday', 'city__province__name', 'city__name')
+        query_params = {}
+        for i in query_fields:
+            if request.GET.get(i):
+                query_params[i] = request.GET.get(i)
+        # print('query_params', query_params)
+        persons_qs = Persons.objects.filter(**query_params)  # 不定传参，*列表，**字典
+        # print('persons_qs', persons_qs)
+        total = persons_qs.count()  # 获取数据总条数
+        persons_qs = persons_qs[(current_page - 1)*page_size:current_page*page_size].values()
+        # 例 Persons.objects.all()[0:5] 表示直接拿到第1到第5条person数据
+        # print('persons_qs', persons_qs)
+        for person in persons_qs:
+            ethnic__name = Ethnics.objects.filter(id=person['ethnic_id']).values()[0]['name']  # 民族name
+            city_obj = Cities.objects.filter(id=person['city_id'])
+            city__name = city_obj.values()[0]['name']  # 城市name
+            city__province__name = city_obj.values('province__name')[0]['province__name']  # 省份name
+            # print(ethnic__name, city__name, city__province__name)
+            del person['ethnic_id']
+            del person['city_id']
+            person['ethnic__name'] = ethnic__name
+            person['city__name'] = city__name
+            person['city__province__name'] = city__province__name
+        # print(persons_qs)
 
-        user_qs = Persons.objects.all().values()
-        print(user_qs[0], type(user_qs[0]))  # 验证user_qs的第一个数据是什么样的，字典
-        for i in range(0, len(user_qs)):
-            if (c - 1)*p <= i < c*p:
-                u.append(user_qs[i])
-        print(u, len(u))
+        # 注意：__跨表不仅能在filter里面使用，还可以在values里面用。
+        # （1）Persons.objects.filter(city__name='北京市').values()  # 查询 北京市 包含的person（已知城市，查人）
+        # print(Persons.objects.filter(name='张三').values('city__name'))  # 验证√
+        # （2）Persons.objects.filter(name='张三').values('city__name')  # 查询 张三 所属城市的name（已知人，查城市）
+        # print(Persons.objects.filter(city__name='北京市').values())  # 验证√
 
-        # 替换掉三个_id字段
-        for i in range(0, len(u)):
-            print(u[i], u[i]['ethnic_id'], u[i]['province_id'], u[i]['city_id'])
-            e_obj = Ethnics.objects.filter(id=u[i]['ethnic_id']).values()
-            p_obj = Provinces.objects.filter(id=u[i]['province_id']).values()
-            c_obj = Cities.objects.filter(id=u[i]['city_id']).values()
-            print(e_obj[0]['ethnic'], p_obj[0]['province'], c_obj[0]['city'])
-
-            del u[i]['ethnic_id']  # 删除字段
-            del u[i]['province_id']
-            del u[i]['city_id']
-            u[i]['ethnic'] = e_obj[0]['ethnic']  # 添加字段
-            u[i]['province'] = p_obj[0]['province']
-            u[i]['city'] = c_obj[0]['city']
-            print(u[i])  # 将三个_id字段替换是为了与前端表格中的字段对应，方便展示。结果如下：
-            # {
-            #  'id': 6,
-            #  'number': '2435',
-            #  'name': '肥肉',
-            #  'sex': 1,
-            #  'birthday': datetime.date(2023, 7, 11),
-            #  'address': '王斐然',
-            #  'ethnic': '回族',
-            #  'province': '内蒙古自治区',
-            #  'city': '通辽市'
-            # }
-
-        resp_data = {'items': u}
+        resp_data = {'items': list(persons_qs), 'total': total}
         return JsonResponse(resp_data)
 
 
@@ -63,14 +47,15 @@ def persons(request):
 def add_person(request):
     if request.method == "POST":
         r_dict = json.loads(request.body)  # 前端向后端发送的参数
-        print('add从前端发送来的数据：', r_dict, r_dict['number'])
+        ethnic_obj = Ethnics.objects.filter(name=r_dict['ethnic__name']).first()  # 先获取对象，后创建
+        city_obj = Cities.objects.filter(name=r_dict['city__name']).first()
+        Persons.objects.create(number=r_dict['number'], name=r_dict['name'], sex=r_dict['sex'], ethnic=ethnic_obj, birthday=r_dict['birthday'], city=city_obj, address=r_dict['address'])
 
-        e_obj = Ethnics.objects.filter(ethnic=r_dict['ethnic']).first()
-        p_obj = Provinces.objects.filter(province=r_dict['province']).first()
-        c_obj = Cities.objects.filter(city=r_dict['city']).first()
+        # 注意：__跨表不能用在create和update里面，只能在跨表查询的时候用。
+        # （1）Persons.objects.create(number=r_dict['number'], name=r_dict['name'],sex=r_dict['sex'], ethnic__name=r_dict['ethnic'], birthday=r_dict['birthday'], city__name=r_dict['city'], address=r_dict['address'])  # 验证×
+        # （2）Persons.objects.filter(id=r_dict['id']).update(number=r_dict['number'], name=r_dict['name'], sex=r_dict['sex'], ethnic__name=r_dict['ethnic'], birthday=r_dict['birthday'], city__name=r_dict['city'], address=r_dict['address'])  # 验证×
 
-        Persons.objects.create(number=r_dict['number'], name=r_dict['name'], sex=r_dict['sex'], ethnic=e_obj, birthday=r_dict['birthday'], province=p_obj, city=c_obj, address=r_dict['address'])
-
+        # 后面这些实际用不到，只是想给前端一个反馈
         user_qs = Persons.objects.all().values()
         resp_data = {'items': list(user_qs)}
         return JsonResponse(resp_data)
@@ -80,10 +65,9 @@ def add_person(request):
 def delete_person(request):
     if request.method == "POST":
         r_dict = json.loads(request.body)
-        # print('delete从前端发送来的数据：', r_dict, r_dict['id'])
-
         Persons.objects.filter(id=r_dict['id']).delete()
 
+        # 后面这些实际用不到，只是想给前端一个反馈
         user_qs = Persons.objects.all().values()
         resp_data = {'items': list(user_qs)}
         return JsonResponse(resp_data)
@@ -93,92 +77,12 @@ def delete_person(request):
 def update_person(request):
     if request.method == "POST":
         r_dict = json.loads(request.body)
-        print('update从前端发送来的数据：', r_dict, r_dict['id'])
+        ethnic_obj = Ethnics.objects.filter(name=r_dict['ethnic__name']).first()
+        city_obj = Cities.objects.filter(name=r_dict['city__name']).first()
+        Persons.objects.filter(id=r_dict['id']).update(number=r_dict['number'], name=r_dict['name'], sex=r_dict['sex'], ethnic=ethnic_obj, birthday=r_dict['birthday'], city=city_obj, address=r_dict['address'])
 
-        e_obj = Ethnics.objects.filter(ethnic=r_dict['ethnic']).first()
-        p_obj = Provinces.objects.filter(province=r_dict['province']).first()
-        c_obj = Cities.objects.filter(city=r_dict['city']).first()
-
-        Persons.objects.filter(id=r_dict['id']).update(number=r_dict['number'], name=r_dict['name'], sex=r_dict['sex'], ethnic=e_obj, birthday=r_dict['birthday'], province=p_obj, city=c_obj, address=r_dict['address'])
-
+        # 后面这些实际用不到，只是想给前端一个反馈
         user_qs = Persons.objects.all().values()
-        resp_data = {'items': list(user_qs)}
-        return JsonResponse(resp_data)
-
-
-# 搜索person
-def search_person(request):
-    if request.method == "POST":
-        r_dict = json.loads(request.body)
-        print('search从前端发送来的数据：', r_dict)
-
-        user_qs = Persons.objects.all().values()
-
-        for key in r_dict:
-            print(key, r_dict[key])
-            if r_dict[key] is not None:
-                if key == 'number':
-                    user_qs = user_qs.filter(number=r_dict[key]).values()
-                    print(user_qs)
-                    continue
-                if key == 'name':
-                    user_qs = user_qs.filter(name=r_dict[key]).values()
-                    print(user_qs)
-                    continue
-                if key == 'sex':
-                    user_qs = user_qs.filter(sex=r_dict[key]).values()
-                    print(user_qs)
-                    continue
-                if key == 'ethnic':
-                    e_obj = Ethnics.objects.filter(ethnic=r_dict['ethnic']).first()  # 获取对象，用于查询
-                    user_qs = user_qs.filter(ethnic=e_obj).values()  #
-                    print(user_qs)
-                    continue
-                if key == 'birthday':
-                    user_qs = user_qs.filter(birthday=r_dict[key]).values()
-                    print(user_qs)
-                    continue
-                if key == 'province':
-                    p_obj = Provinces.objects.filter(province=r_dict['province']).first()
-                    user_qs = user_qs.filter(province=p_obj).values()  #
-                    print(user_qs)
-                    continue
-                if key == 'city':
-                    c_obj = Cities.objects.filter(city=r_dict['city']).first()
-                    user_qs = user_qs.filter(city=c_obj).values()  #
-                    print(user_qs)
-                    continue
-        print('筛选后：', user_qs)
-
-        u = user_qs  # 后面替换的过程直接复制Persons里面的，所以定义一个u，不过这里的u并不是列表[]
-        # 替换掉三个_id字段
-        for i in range(0, len(u)):
-            print(u[i], u[i]['ethnic_id'], u[i]['province_id'], u[i]['city_id'])
-            e_obj = Ethnics.objects.filter(id=u[i]['ethnic_id']).values()
-            p_obj = Provinces.objects.filter(id=u[i]['province_id']).values()
-            c_obj = Cities.objects.filter(id=u[i]['city_id']).values()
-            print(e_obj[0]['ethnic'], p_obj[0]['province'], c_obj[0]['city'])
-
-            del u[i]['ethnic_id']  # 删除字段
-            del u[i]['province_id']
-            del u[i]['city_id']
-            u[i]['ethnic'] = e_obj[0]['ethnic']  # 添加字段
-            u[i]['province'] = p_obj[0]['province']
-            u[i]['city'] = c_obj[0]['city']
-            print(u[i])  # 将三个_id字段替换是为了与前端表格中的字段对应，方便展示。结果如下：
-            # {
-            #  'id': 6,
-            #  'number': '2435',
-            #  'name': '肥肉',
-            #  'sex': 1,
-            #  'birthday': datetime.date(2023, 7, 11),
-            #  'address': '王斐然',
-            #  'ethnic': '回族',
-            #  'province': '内蒙古自治区',
-            #  'city': '通辽市'
-            # }
-        print('( user_qs == u ) ==', u==user_qs)
-        # 二者全等，下面用哪个都一样
         resp_data = {'items': list(user_qs)}
         return JsonResponse(resp_data)
 
@@ -188,7 +92,6 @@ def get_provinces(request):
     if request.method == "GET":
         p = Provinces.objects.all().values()
         resp_data = {'items': list(p)}
-        # print(resp_data)
         return JsonResponse(resp_data)
 
 
@@ -196,13 +99,10 @@ def get_provinces(request):
 def get_cities(request):
     if request.method == "POST":
         r_dict = json.loads(request.body)
-        print('city从前端发送来的数据：', r_dict)  # {'province', 省份}
-
-        p = Provinces.objects.filter(province=r_dict['province']).first()
-        c = p.cities_set.all().values()  # 一对多反向查询
-        print(c)
-        resp_data = {'items': list(c)}
-        # print(resp_data)
+        # province = Provinces.objects.filter(name=r_dict['city__province__name']).first()
+        # cities = province.cities_set.all().values()  # 一对多反向查询，两步
+        cities = Cities.objects.filter(province__name=r_dict['city__province__name']).values()  # 基于双下划线的跨表查询，一步
+        resp_data = {'items': list(cities)}
         return JsonResponse(resp_data)
 
 
@@ -211,7 +111,6 @@ def get_ethnics(request):
     if request.method == "GET":
         e = Ethnics.objects.all().values()
         resp_data = {'items': list(e)}
-        # print(resp_data)
         return JsonResponse(resp_data)
 
 
