@@ -112,11 +112,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'zh-hans'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Shanghai'
 
 USE_I18N = True
 
-USE_TZ = True
+USE_TZ = False
 
 
 # Static files (CSS, JavaScript, Images)
@@ -168,5 +168,19 @@ EMAIL_HOST_PASSWORD = 'moaxojgcyxqybjhj'  # 在邮箱中设置的客户端授权
 EMAIL_FROM = 'zx'  # 收件人看到的发件人
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 EMAIL_USE_TLS = True  # 是否使用TLS安全传输协议
-# EMAIL_USE_SSL = True  # 是否使用SSL加密，qq企业邮箱要求使用
 
+
+# 设置 JWT 为默认的验证机制
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+
+}
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=10),
+}
