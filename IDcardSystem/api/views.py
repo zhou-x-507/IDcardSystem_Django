@@ -144,22 +144,6 @@ class RedisTestView(APIView):
         city = request.query_params.get('city')
         # 根据国家选择器的选择结果，查询其名下的所有省份
         if country or country == '':
-            # c_id = []
-            # for j in r.lrange('provinces', 0, -1):
-            #     c_id.append(eval(j).get('country_id'))
-            # print(c_id)
-            # for i in r.lrange('countries', 0, -1):
-            #     print(i, eval(i).keys(), eval(i).values())
-            #     if country in i and eval(i).get('id') not in c_id:
-            #         provinces = Provinces.objects.filter(country__name=country).values()
-            #         print('ORM', list(provinces))
-            #         for j in provinces:
-            #             r.rpush('provinces', str(j))
-            # print(r.lrange('provinces', 0, -1), '\n')
-            # print(r.llen('provinces'))
-            # # 不应该先判断再分两次存入缓存的，太麻烦了
-            # # 应该直接把整张表放入缓存，涉及到某张表的操作，就可以直接把整张表放入缓存，然后直接在缓存里面匹配就完事了
-            # r.delete('provinces')
             if r.llen('provinces'):
                 # 如果缓存中已有provinces，先在国家表中根据name查询id，然后在省份表中根据country_id查询所有province
                 # print('缓存中的Provinces表：', r.lrange('provinces', 0, -1))
