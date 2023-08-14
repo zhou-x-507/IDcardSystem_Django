@@ -1,5 +1,5 @@
 import datetime
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from api.models import Persons, Provinces, Cities, Ethnics, Register, Countries
 from django.contrib.auth.models import User
 import json
@@ -7,7 +7,16 @@ from django.contrib.auth import authenticate
 from django.core.mail import send_mail  # 发送邮件
 import random
 from rest_framework.views import APIView  # 创建类视图
-import redis
+import redis  # 通用redis
+from django_redis import get_redis_connection  # django-redis
+from celery_tasks.sms.tasks import send, send_email
+
+
+# celery练习
+class CeleryTest(APIView):
+    def get(self, request):
+        result = send.delay('张三', 123)
+        return HttpResponse(result)
 
 
 # ========== 类视图 ==========
@@ -39,11 +48,9 @@ class PersonsView(APIView):
         person_qs = Persons.objects.all().values('id', 'number', 'name', 'sex', 'birthday', 'address', 'city_id', 'ethnic_id', 'city__name', 'ethnic__name', 'city__province__name').last()
         # print('person_qs', person_qs)
 
-        # ===== celery =====
-        # 同步信息到社保局
-        # 查征信
-        # 查祖上三代
-        # after_add_person.delay(pid)
+        # celery发送邮件
+        # 每添加一个person，都向某某部门（343253855@qq.com）发送邮件，通知其查询该person的征信
+        send_email.delay('343253855@qq.com', r_dict['number'])
 
         resp_data = {'item': list(person_qs)[0]}
         return JsonResponse(resp_data)
@@ -67,7 +74,7 @@ class PersonsView(APIView):
         person_qs = person_qs.values('id', 'number', 'name', 'sex', 'birthday', 'address', 'city_id', 'ethnic_id',
                                      'city__name', 'ethnic__name', 'city__province__name')
         # print('person_qs', person_qs)
-        resp_data = {'item': list(person_qs)[0]}
+        resp_data = {'item': list(person_qs)}
         return JsonResponse(resp_data)
 
 
@@ -144,7 +151,8 @@ class RedisTestView(APIView):
         city = request.query_params.get('city')
         # 根据国家选择器的选择结果，查询其名下的所有省份
         if country or country == '':
-            if r.llen('provinces'):
+            # r.delete('provinces')
+            if r.exists('provinces'):
                 # 如果缓存中已有provinces，先在国家表中根据name查询id，然后在省份表中根据country_id查询所有province
                 # print('缓存中的Provinces表：', r.lrange('provinces', 0, -1))
                 country_id = ''
@@ -171,7 +179,7 @@ class RedisTestView(APIView):
         # 根据省份选择器的选择结果，查询其名下的所有城市
         if province or province == '':
             # r.delete('cities')
-            if r.llen('cities'):
+            if r.exists('cities'):
                 # print('缓存中的Cities表：', r.lrange('cities', 0, -1))
                 province_id = ''
                 for i in r.lrange('provinces', 0, -1):
@@ -196,7 +204,7 @@ class RedisTestView(APIView):
         # 根据城市选择器的选择结果，查询其名下的所有公民
         if city or city == '':
             # r.delete('persons')
-            if r.llen('persons'):
+            if r.exists('persons'):
                 # print('缓存中的Persons表：', r.lrange('persons', 0, -1))
                 city_id = ''
                 for i in r.lrange('cities', 0, -1):
@@ -220,7 +228,7 @@ class RedisTestView(APIView):
             return JsonResponse(resp_data)
 
         # 如果缓存中已经存在countries，就直接从缓存中拿；否则就先从数据库中拿，然后再存入缓存。
-        if r.llen('countries'):
+        if r.exists('countries'):
             # print('缓存中的Countries表：', r.lrange('countries', 0, -1))
             countries = []
             for i in r.lrange('countries', 0, -1):
@@ -236,6 +244,132 @@ class RedisTestView(APIView):
                 # print(str(i))
                 r.rpush('countries', str(i))
             # print('Countries表已全部存入redis缓存：', r.lrange('countries', 0, -1))
+        resp_data = {'items': list(countries)}
+        return JsonResponse(resp_data)
+
+
+# django-redis练习
+class DjangoRedisView(APIView):
+    def get(self, request):
+        from django.core.cache import cache  # (1)
+        cache.set('my_key', 'my_value')
+        print(cache.keys('*'))  # ['my_key']
+        cache.delete('my_key')
+        print(cache.keys('*'))  # []
+        # 这个缓存的数据类型、命令有问题，查到的一些方法用不了，先不用这个
+
+        from django_redis import get_redis_connection  # (2)
+        r = get_redis_connection('default')
+        r.delete('list')
+        r.rpush('list', 1, 2, 3)
+        print(r.exists('list'), r.lrange('list', 0, -1), r.llen('list'))
+        print(r.keys())
+        # 这个缓存库好像和celery的那个是用的同一个，与上面那个cache不在一起，与通用redis也不在一起，但命令是和通用redis一样的
+
+        # 获取前端get请求携带的参数
+        country = request.query_params.get('country')
+        province = request.query_params.get('province')
+        city = request.query_params.get('city')
+        # 根据国家选择器的选择结果，查询其名下的所有省份
+        if country or country == '':
+            # r.delete('provinces')
+            if r.exists('provinces'):
+                # print('缓存中的Provinces表：', r.lrange('provinces', 0, -1))
+                country_id = ''
+                for i in r.lrange('countries', 0, -1):
+                    if country == eval(i).get('name'):
+                        country_id = eval(i).get('id')
+                        break
+                # print('当前选择的国家id：', country_id)
+                provinces = []
+                for i in r.lrange('provinces', 0, -1):
+                    if country_id == eval(i).get('country_id'):
+                        provinces.append(eval(i))
+                print('缓存中的查询结果：', provinces)
+            else:
+                # 如果缓存中没有provinces，先去数据库中匹配，然后将该省份表的全部数据存入缓存
+                provinces = Provinces.objects.filter(country__name=country).values()
+                print('ORM查询结果：', list(provinces))
+                provinces_all = Provinces.objects.all().values()
+                for i in provinces_all:
+                    r.rpush('provinces', str(i))
+                # print('Provinces表已全部存入redis缓存：', r.lrange('provinces', 0, -1))
+            resp_data = {'items': list(provinces)}
+            return JsonResponse(resp_data)
+        # 根据省份选择器的选择结果，查询其名下的所有城市
+        if province or province == '':
+            # r.delete('cities')
+            if r.exists('cities'):
+                # print('缓存中的Cities表：', r.lrange('cities', 0, -1))
+                province_id = ''
+                for i in r.lrange('provinces', 0, -1):
+                    if province == eval(i).get('name'):
+                        province_id = eval(i).get('id')
+                        break
+                # print('当前选择的省份id：', province_id)
+                cities = []
+                for i in r.lrange('cities', 0, -1):
+                    if province_id == eval(i).get('province_id'):
+                        cities.append(eval(i))
+                print('缓存中的查询结果：', cities)
+            else:
+                cities = Cities.objects.filter(province__name=province).values()
+                print('ORM查询结果：', list(cities))
+                cities_all = Cities.objects.all().values()
+                for i in cities_all:
+                    r.rpush('cities', str(i))
+                # print('Cities表已全部存入redis缓存：', r.lrange('cities', 0, -1))
+            resp_data = {'items': list(cities)}
+            return JsonResponse(resp_data)
+        # 根据城市选择器的选择结果，查询其名下的所有公民
+        if city or city == '':
+            # r.delete('persons')
+            if r.exists('persons'):
+                # print('缓存中的Persons表：', r.lrange('persons', 0, -1))
+                city_id = ''
+                for i in r.lrange('cities', 0, -1):
+                    if city == eval(i).get('name'):
+                        city_id = eval(i).get('id')
+                        break
+                # print('当前选择的城市id：', city_id)
+                persons = []
+                for i in r.lrange('persons', 0, -1):
+                    if city_id == eval(i).get('city_id'):
+                        persons.append(eval(i))
+                print('缓存中的查询结果：', persons)
+            else:
+                persons = Persons.objects.filter(city__name=city).values()
+                print('ORM查询结果：', list(persons))
+                persons_all = Persons.objects.all().values()
+                for i in persons_all:
+                    r.rpush('persons', str(i))
+                # print('Persons表已全部存入redis缓存：', r.lrange('persons', 0, -1))
+            resp_data = {'items': list(persons)}
+            return JsonResponse(resp_data)
+
+        # 测试 (2)缓存和通用缓存之间的差异：缓存库中数据保存的形式不同，除此之外的其他操作应该都是相同的（既然如此，上面三个直接复制粘贴）
+        r.delete('countries')
+        if r.exists('countries'):
+            print(r.lrange('countries', 0, -1))
+            # [b"{'id': 1, 'name': '\xe4\xb8\xad\xe5\x9b\xbd'}", b"{'id': 2, 'name': '\xe5\xa4\x96\xe5\x9b\xbd'}"]
+            # 相比于通用redis，这个缓存中的元素都会带有 b""，包括前面输出所有key的时候每个键名也都带有 b''，但是 eval() 输出又不受影响
+            countries = []
+            for i in r.lrange('countries', 0, -1):
+                print(eval(i))
+                # {'id': 1, 'name': '中国'}
+                # {'id': 2, 'name': '外国'}
+                countries.append(eval(i))
+            print('缓存中的查询结果：', countries)  # [{'id': 1, 'name': '中国'}, {'id': 2, 'name': '外国'}]
+        else:
+            countries = Countries.objects.all().values()
+            print('ORM查询结果：', list(countries))  # [{'id': 1, 'name': '中国'}, {'id': 2, 'name': '外国'}]
+            for i in countries:
+                print(str(i))
+                # {'id': 1, 'name': '中国'}
+                # {'id': 2, 'name': '外国'}
+                r.rpush('countries', str(i))
+            print(r.lrange('countries', 0, -1))
+            # [b"{'id': 1, 'name': '\xe4\xb8\xad\xe5\x9b\xbd'}", b"{'id': 2, 'name': '\xe5\xa4\x96\xe5\x9b\xbd'}"]
         resp_data = {'items': list(countries)}
         return JsonResponse(resp_data)
 
@@ -386,18 +520,8 @@ def add_person(request):
         # （1）Persons.objects.create(number=r_dict['number'], name=r_dict['name'],sex=r_dict['sex'], ethnic__name=r_dict['ethnic'], birthday=r_dict['birthday'], city__name=r_dict['city'], address=r_dict['address'])  # 验证×
         # （2）Persons.objects.filter(id=r_dict['id']).update(number=r_dict['number'], name=r_dict['name'], sex=r_dict['sex'], ethnic__name=r_dict['ethnic'], birthday=r_dict['birthday'], city__name=r_dict['city'], address=r_dict['address'])  # 验证×
 
-        # 同步信息到社保局
-        # 查征信
-        # 查祖上三代
-        # after_add_person.delay(pid)
         resp_data = {'item': list(person_qs)}
         return JsonResponse(resp_data)
-
-
-# from celery import task
-# @task
-# def after_add_person(p_id):
-#     persion =
 
 
 # 删除person

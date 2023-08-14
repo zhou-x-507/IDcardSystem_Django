@@ -19,5 +19,8 @@ urlpatterns = [
     path('persons/', views.PersonsView.as_view()),  # as_view() 类视图使用规范，必带
     path('persons/<int:pk>/', views.PersonsView.as_view()),  # <...> 相当于占位符，用于在url上展示参数。其中可限制参数的数据类型和名称
     path('register/', views.RegisterView.as_view()),
-    path('redis_test/', views.RedisTestView.as_view())
+    path('redis_test/', views.RedisTestView.as_view()),  # redis练习，通用
+    path('django_redis/', views.DjangoRedisView.as_view()),  # django-redis练习
+
+    path('celery_test', views.CeleryTest.as_view()),  # celery练习，发邮件
 ]
