@@ -251,125 +251,55 @@ class RedisTestView(APIView):
 # django-redis练习
 class DjangoRedisView(APIView):
     def get(self, request):
-        from django.core.cache import cache  # (1)
-        cache.set('my_key', 'my_value')
-        print(cache.keys('*'))  # ['my_key']
-        cache.delete('my_key')
-        print(cache.keys('*'))  # []
-        # 这个缓存的数据类型、命令有问题，查到的一些方法用不了，先不用这个
-
-        from django_redis import get_redis_connection  # (2)
-        r = get_redis_connection('default')
-        r.delete('list')
-        r.rpush('list', 1, 2, 3)
-        print(r.exists('list'), r.lrange('list', 0, -1), r.llen('list'))
-        print(r.keys())
-        # 这个缓存库好像和celery的那个是用的同一个，与上面那个cache不在一起，与通用redis也不在一起，但命令是和通用redis一样的
-
-        # 获取前端get请求携带的参数
         country = request.query_params.get('country')
         province = request.query_params.get('province')
         city = request.query_params.get('city')
-        # 根据国家选择器的选择结果，查询其名下的所有省份
+
+        from django.core.cache import cache  # (1) cache操作确实比通用操作方便很多，存进去什么拿出来就是什么
+        print(cache.keys('*'))  # ['persons', 'cities', 'countries', 'provinces']
+
         if country or country == '':
-            # r.delete('provinces')
-            if r.exists('provinces'):
-                # print('缓存中的Provinces表：', r.lrange('provinces', 0, -1))
-                country_id = ''
-                for i in r.lrange('countries', 0, -1):
-                    if country == eval(i).get('name'):
-                        country_id = eval(i).get('id')
-                        break
-                # print('当前选择的国家id：', country_id)
-                provinces = []
-                for i in r.lrange('provinces', 0, -1):
-                    if country_id == eval(i).get('country_id'):
-                        provinces.append(eval(i))
-                print('缓存中的查询结果：', provinces)
+            if cache.get('provinces'):
+                provinces = cache.get('provinces')
+                provinces = provinces.filter(country__name=country)
             else:
-                # 如果缓存中没有provinces，先去数据库中匹配，然后将该省份表的全部数据存入缓存
                 provinces = Provinces.objects.filter(country__name=country).values()
-                print('ORM查询结果：', list(provinces))
                 provinces_all = Provinces.objects.all().values()
-                for i in provinces_all:
-                    r.rpush('provinces', str(i))
-                # print('Provinces表已全部存入redis缓存：', r.lrange('provinces', 0, -1))
+                cache.set('provinces', provinces_all)
+            print(provinces)
             resp_data = {'items': list(provinces)}
             return JsonResponse(resp_data)
-        # 根据省份选择器的选择结果，查询其名下的所有城市
+
         if province or province == '':
-            # r.delete('cities')
-            if r.exists('cities'):
-                # print('缓存中的Cities表：', r.lrange('cities', 0, -1))
-                province_id = ''
-                for i in r.lrange('provinces', 0, -1):
-                    if province == eval(i).get('name'):
-                        province_id = eval(i).get('id')
-                        break
-                # print('当前选择的省份id：', province_id)
-                cities = []
-                for i in r.lrange('cities', 0, -1):
-                    if province_id == eval(i).get('province_id'):
-                        cities.append(eval(i))
-                print('缓存中的查询结果：', cities)
+            if cache.get('cities'):
+                cities = cache.get('cities')
+                cities = cities.filter(province__name=province)
             else:
                 cities = Cities.objects.filter(province__name=province).values()
-                print('ORM查询结果：', list(cities))
                 cities_all = Cities.objects.all().values()
-                for i in cities_all:
-                    r.rpush('cities', str(i))
-                # print('Cities表已全部存入redis缓存：', r.lrange('cities', 0, -1))
+                cache.set('cities', cities_all)
+            print(cities)
             resp_data = {'items': list(cities)}
             return JsonResponse(resp_data)
-        # 根据城市选择器的选择结果，查询其名下的所有公民
+
         if city or city == '':
-            # r.delete('persons')
-            if r.exists('persons'):
-                # print('缓存中的Persons表：', r.lrange('persons', 0, -1))
-                city_id = ''
-                for i in r.lrange('cities', 0, -1):
-                    if city == eval(i).get('name'):
-                        city_id = eval(i).get('id')
-                        break
-                # print('当前选择的城市id：', city_id)
-                persons = []
-                for i in r.lrange('persons', 0, -1):
-                    if city_id == eval(i).get('city_id'):
-                        persons.append(eval(i))
-                print('缓存中的查询结果：', persons)
+            if cache.get('persons'):
+                persons = cache.get('persons')
+                persons = persons.filter(city__name=city)
             else:
                 persons = Persons.objects.filter(city__name=city).values()
-                print('ORM查询结果：', list(persons))
                 persons_all = Persons.objects.all().values()
-                for i in persons_all:
-                    r.rpush('persons', str(i))
-                # print('Persons表已全部存入redis缓存：', r.lrange('persons', 0, -1))
+                cache.set('persons', persons_all)
+            print(persons)
             resp_data = {'items': list(persons)}
             return JsonResponse(resp_data)
 
-        # 测试 (2)缓存和通用缓存之间的差异：缓存库中数据保存的形式不同，除此之外的其他操作应该都是相同的（既然如此，上面三个直接复制粘贴）
-        r.delete('countries')
-        if r.exists('countries'):
-            print(r.lrange('countries', 0, -1))
-            # [b"{'id': 1, 'name': '\xe4\xb8\xad\xe5\x9b\xbd'}", b"{'id': 2, 'name': '\xe5\xa4\x96\xe5\x9b\xbd'}"]
-            # 相比于通用redis，这个缓存中的元素都会带有 b""，包括前面输出所有key的时候每个键名也都带有 b''，但是 eval() 输出又不受影响
-            countries = []
-            for i in r.lrange('countries', 0, -1):
-                print(eval(i))
-                # {'id': 1, 'name': '中国'}
-                # {'id': 2, 'name': '外国'}
-                countries.append(eval(i))
-            print('缓存中的查询结果：', countries)  # [{'id': 1, 'name': '中国'}, {'id': 2, 'name': '外国'}]
+        if cache.get('countries'):
+            countries = cache.get('countries')
         else:
             countries = Countries.objects.all().values()
-            print('ORM查询结果：', list(countries))  # [{'id': 1, 'name': '中国'}, {'id': 2, 'name': '外国'}]
-            for i in countries:
-                print(str(i))
-                # {'id': 1, 'name': '中国'}
-                # {'id': 2, 'name': '外国'}
-                r.rpush('countries', str(i))
-            print(r.lrange('countries', 0, -1))
-            # [b"{'id': 1, 'name': '\xe4\xb8\xad\xe5\x9b\xbd'}", b"{'id': 2, 'name': '\xe5\xa4\x96\xe5\x9b\xbd'}"]
+            cache.set('countries', countries)
+        print(countries)
         resp_data = {'items': list(countries)}
         return JsonResponse(resp_data)
 
